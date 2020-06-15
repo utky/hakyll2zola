@@ -1,15 +1,33 @@
 use serde::{Serialize, Deserialize};
-use std::path::Path;
+use std::path::{Path,PathBuf};
+use clap::{Arg, App};
 
 fn main() -> std::io::Result<()> {
-  let args: Vec<String> = std::env::args().collect();
-  let path: &Path = Path::new(&args[1]);
-  let content = std::fs::read_to_string(path)?;
+
+  let matches = App::new("hakyll2zola")
+                  .version("1.0")
+                  .author("Yutaka Imamura <ilyaletre@gmail.com>")
+                  .about("convert hakyll doc to zola doc")
+                  .arg(Arg::with_name("input").long("input").short('i').required(true).takes_value(true))
+                  .arg(Arg::with_name("output").long("output").short('o').required(true).takes_value(true))
+                  .arg(Arg::with_name("alias").long("alias").short('a').required(true).takes_value(true))
+                  .get_matches();
+
+  let mut alias_path: PathBuf = PathBuf::from(matches.value_of("alias").unwrap());
+  let input: &Path = Path::new(matches.value_of("input").unwrap());
+  let output: &Path = Path::new(matches.value_of("output").unwrap());
+
+  let content = std::fs::read_to_string(input)?;
   let mut stream = Stream::new(&content);
   match stream.read_header() {
-    Ok(metadata) => {
-      print!("{}", &metadata.format_header());
-      print!("{}", stream.current());
+    Ok(mut metadata) => {
+      alias_path.push(input.with_extension("html").file_name().unwrap());
+      metadata.alias = Some(alias_path.as_os_str().to_str().unwrap().to_string());
+      let mut buf = String::new();
+      buf.push_str(&metadata.format_header());
+      buf.push_str(stream.current());
+      std::fs::create_dir_all(output.parent().unwrap())?;
+      std::fs::write(output, buf)?;
       Ok(())
     },
     Err(e) => {
@@ -41,6 +59,7 @@ struct Metadata {
   title: String,
   date: Option<String>,
   tags: Option<String>,
+  alias: Option<String>,
 }
 
 impl Metadata {
@@ -51,7 +70,9 @@ impl Metadata {
     if let Some(date) = &self.date {
       buf.push_str(format!("date = {}\n", date).as_str());
     }
-    // buf.push_str("aliases = [\"{}\"]\n", format!("/posts/note/{}", path.file_name().unwrap().to_str().unwrap()));
+    if let Some(alias) = &self.alias {
+      buf.push_str(format!("aliases = [\"{}\"]\n", alias).as_str());
+    }
     if let Some(tags) = &self.tags {
       buf.push_str("[taxonomies]\n");
       buf.push_str(format!("tags = {}\n", print_tags_as_toml(tags)).as_str());
@@ -154,6 +175,7 @@ mod tests {
       title: String::from("タイトル"),
       date: None,
       tags: None,
+      alias: None,
     });
   }
 
@@ -165,6 +187,7 @@ mod tests {
       title: String::from("『ビッグデータを支える技術』を読んだ データインジェスチョンについて"),
       date: Some(String::from("2020-02-01")),
       tags: Some(String::from("database, book")),
+      alias: None,
     });
   }
 }
