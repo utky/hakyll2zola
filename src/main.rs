@@ -1,54 +1,64 @@
-use std::str::Chars;
-use std::iter::Peekable;
-use chrono::NaiveDate;
 use serde::{Serialize, Deserialize};
+use std::path::Path;
 
 fn main() -> std::io::Result<()> {
-  let mut buf = String::new();
-  // read all bytes
-  loop {
-    let read = std::io::stdin().read_line(&mut buf)?;
-    if read == 0 {
-      break;
-    }
-  }
-  let mut stream = Stream::new(&buf);
+  let args: Vec<String> = std::env::args().collect();
+  let path: &Path = Path::new(&args[1]);
+  let content = std::fs::read_to_string(path)?;
+  let mut stream = Stream::new(&content);
   match stream.read_header() {
     Ok(metadata) => {
-      println!("+++");
-      println!("title = \"{}\"", &metadata.title);
-      if let Some(date) = &metadata.date {
-        println!("date = {}", date);
-      }
-      if let Some(tags) = &metadata.tags {
-        println!("[taxonomies]");
-        println!("tags = {}", print_tags_as_toml(tags));
-      }
-      print!("+++");
+      print!("{}", &metadata.format_header());
       print!("{}", stream.current());
+      Ok(())
     },
-    Err(e) => println!("{:?}", e),
+    Err(e) => {
+      println!("{:?}", e);
+      Err(std::io::Error::new(std::io::ErrorKind::Other, format!("{:?}", e)))
+    },
   }
-  Ok(())
+}
+
+fn print_list_toml(elements: Vec<&str>) -> String {
+  let mut buf = String::new();
+  buf.push('[');
+  let str_elements: Vec<String> = elements.iter().map(|t| format!("\"{}\"", t)).collect();
+  buf.push_str(str_elements.join(",").as_str());
+  buf.push(']');
+  buf
 }
 
 fn print_tags_as_toml(tags: &String) -> String {
   let mut tag_vec = Vec::new();
-  let mut buf = String::new();
-  buf.push('[');
   tags.split(", ").for_each(|tag| {
     tag_vec.push(tag)
   });
-  let tag_str_literars: Vec<String> = tag_vec.iter().map(|t| format!("\"{}\"", t)).collect();
-  buf.push_str(tag_str_literars.join(",").as_str());
-  buf.push(']');
-  buf
+  print_list_toml(tag_vec)
 }
+
 #[derive(Debug, Eq, PartialEq, Serialize, Deserialize)]
 struct Metadata {
   title: String,
   date: Option<String>,
   tags: Option<String>,
+}
+
+impl Metadata {
+  fn format_header(&self) -> String {
+    let mut buf = String::new();
+    buf.push_str("+++\n");
+    buf.push_str(format!("title = \"{}\"\n", &self.title).as_str());
+    if let Some(date) = &self.date {
+      buf.push_str(format!("date = {}\n", date).as_str());
+    }
+    // buf.push_str("aliases = [\"{}\"]\n", format!("/posts/note/{}", path.file_name().unwrap().to_str().unwrap()));
+    if let Some(tags) = &self.tags {
+      buf.push_str("[taxonomies]\n");
+      buf.push_str(format!("tags = {}\n", print_tags_as_toml(tags)).as_str());
+    }
+    buf.push_str("+++");
+    buf
+  }
 }
 
 #[derive(Debug)]
@@ -72,7 +82,6 @@ struct Stream<'a> {
 
 impl <'a> Stream<'a> {
   fn new(content: &'a String) -> Stream<'a> {
-    let ch = content.chars();
     Stream {
       offset: 0,
       content: content,
@@ -121,7 +130,7 @@ impl <'a> Stream<'a> {
 
 #[cfg(test)]
 mod tests {
-  use super::{Stream, Metadata, ParseError};
+  use super::{Stream, Metadata};
   #[test]
   fn test_read_string() {
     let s = String::from("---\ntitle: タイトル");
